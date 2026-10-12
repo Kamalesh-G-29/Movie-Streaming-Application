@@ -86,13 +86,17 @@
         let currentServerIndex = 0;
         let playbackStartedAt = null;
 
-        // ─── SEED DEMO USER ───
-        if (!usersDB.some(u => u.email === 'admin@cineverse.com')) {
-            usersDB.push({ email: 'admin@cineverse.com', password: '12345', name: 'Admin' });
-            localStorage.setItem('cineverse_users', JSON.stringify(usersDB));
+        // ─── HELPERS ───
+        const configuredApiBaseUrl = (window.CINEVORA_API_BASE_URL || '').trim();
+        const isLocalDevelopment = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+        const API_BASE_URL = (configuredApiBaseUrl ||
+            (isLocalDevelopment && window.location.port !== '5000' ? 'http://localhost:5000' : '')
+        ).replace(/\/+$/, '');
+
+        function apiUrl(path) {
+            return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
         }
 
-        // ─── HELPERS ───
         function toast(msg, type = 'info') {
             const t = document.getElementById('toastMsg');
             const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
@@ -110,7 +114,7 @@
             const token = localStorage.getItem('cinevora_token');
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
             if (token) headers.Authorization = `Bearer ${token}`;
-            return fetch(url, { ...options, headers }).then(async response => {
+            return fetch(apiUrl(url), { ...options, headers }).then(async response => {
                 const data = await response.json().catch(() => null);
                 if (!response.ok) throw new Error(data?.message || 'Request failed');
                 return data;
@@ -257,7 +261,7 @@
 
             const resultsDiv = document.getElementById('compareResults');
             try {
-                const response = await fetch('/api/movies/compare', {
+                const response = await fetch(apiUrl('/api/movies/compare'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ movies: compareMovies.map(movie => movie.title) })
@@ -2027,7 +2031,7 @@
                 if (errorMsgEl) errorMsgEl.textContent = '';
                 
                 try {
-                    const res = await fetch('/api/auth/login', {
+                    const res = await fetch(apiUrl('/api/auth/login'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email, password: pass })
@@ -2071,7 +2075,7 @@
                 const name = prompt('Enter your name:') || 'User';
 
                 try {
-                    const res = await fetch('/api/auth/register', {
+                    const res = await fetch(apiUrl('/api/auth/register'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email: em, password: pw, name })

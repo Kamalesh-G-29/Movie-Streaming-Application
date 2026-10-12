@@ -1,0 +1,44 @@
+name: Deploy CINEVORA frontend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Configure production API URL
+        env:
+          CINEVORA_API_BASE_URL: ${{ vars.CINEVORA_API_BASE_URL }}
+        run: |
+          node -e "const fs = require('node:fs'); const url = process.env.CINEVORA_API_BASE_URL; if (!url || !url.startsWith('https://')) throw new Error('Set the CINEVORA_API_BASE_URL repository variable to the HTTPS Render service URL.'); fs.writeFileSync('js/config.js', 'window.CINEVORA_API_BASE_URL = ' + JSON.stringify(url.replace(/\\/+$/, '')) + ';\\n');"
+      - name: Assemble frontend artifact
+        run: |
+          mkdir -p dist/css dist/js
+          cp index.html logo.webp dist/
+          cp css/style.css dist/css/
+          cp js/app.js js/config.js dist/js/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

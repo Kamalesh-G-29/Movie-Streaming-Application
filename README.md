@@ -64,6 +64,24 @@ npm start
 
 Open [http://localhost:5000](http://localhost:5000). For automatic backend restarts during development, use `npm run dev`.
 
+The browser uses the same-origin API when served by Express. When using a local static server such as VS Code Live Server, it automatically calls `http://localhost:5000`. The optional `js/config.js` setting is reserved for the deployed API URL; never put TMDB, MongoDB, JWT, Gemini, OMDb, or Reddit credentials in frontend files.
+
+## Deployment
+
+The backend can be deployed to Render and the static frontend to GitHub Pages. The checked-in `render.yaml` configures the backend service, MongoDB readiness check, and Pages CORS origin. Create a MongoDB Atlas database and provide its connection string and the TMDB API key in Render's environment settings; the blueprint generates `JWT_SECRET`. Optional integrations can be added there as well. Configure Atlas network access to allow Render connections. Do not commit `backend/.env` or enter secrets as GitHub repository variables.
+
+After creating the Render service from this repository, copy its HTTPS service URL (for example, `https://cinevora-api.onrender.com`) into the GitHub repository variable `CINEVORA_API_BASE_URL` under **Settings → Secrets and variables → Actions → Variables**. Then enable GitHub Pages with **GitHub Actions** as the build and deployment source. The Pages workflow injects only that public base URL into `js/config.js`; server credentials remain on Render.
+
+Push the deployment changes from the repository root:
+
+```powershell
+git add README.md index.html js/app.js js/config.js backend/config/database.js backend/server.js backend/.env.example render.yaml .github/workflows/pages.yml
+git commit -m "Fix movie API routing and deployment configuration"
+git push origin main
+```
+
+The Pages URL for this repository is `https://kamalesh-g-29.github.io/Movie-Streaming-Application/`. The API will be available at `<your-render-service-url>/api/movies/trending`; verify `<your-render-service-url>/api/health` reports `{"status":"ok","database":"connected"}` after deployment.
+
 ## Audience reception score
 
 The backend caches external source snapshots for six hours. The score is a weighted estimate: TMDB rating (35%), IMDb rating (35%), CINEVORA review sentiment (15%), and Reddit post sentiment (15%). Reddit post sentiment is weighted by each post's score and comment count. Missing components are excluded and the remaining weights are normalized. Sentiment is classified as positive, neutral, or negative; the detail page shows percentages, source ratings, sample counts, and a confidence indicator. It is an estimate, not a guarantee of audience response.
