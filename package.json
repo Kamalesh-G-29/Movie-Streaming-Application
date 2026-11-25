@@ -34,6 +34,7 @@
     "is-extglob": "^2.1.1",
     "is-glob": "^4.0.3",
     "is-number": "^7.0.0",
+    "jsonwebtoken": "^9.0.3",
     "minimatch": "^10.2.6",
     "mongoose": "^9.10.1",
     "ms": "^2.1.3",
