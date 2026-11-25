@@ -1,17 +1,33 @@
-const fetch = require('node-fetch');
+const getFetch = () => {
+  if (typeof globalThis.fetch === 'function') return globalThis.fetch;
+  try {
+    const mod = require('node-fetch');
+    return typeof mod === 'function' ? mod : mod.default;
+  } catch {
+    return null;
+  }
+};
 const { getYear, isBlocked } = require('../utils/helpers');
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
-const API_KEY = process.env.TMDB_API_KEY;
+const DEFAULT_TMDB_API_KEY = 'c00a129541b13f723b08893d51be29ea';
+const getApiKey = () => process.env.TMDB_API_KEY || DEFAULT_TMDB_API_KEY;
 
 const tmdbFetch = async (endpoint, params = {}) => {
   const url = new URL(`${TMDB_BASE}${endpoint}`);
   url.search = new URLSearchParams({
-    api_key: API_KEY,
+    api_key: getApiKey(),
     language: 'en-US',
     ...params,
   });
-  const res = await fetch(url);
+  const fetchFn = getFetch();
+  if (!fetchFn) throw new Error('Fetch function not available');
+  const res = await fetchFn(url.toString(), {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    }
+  });
   return res.json();
 };
 

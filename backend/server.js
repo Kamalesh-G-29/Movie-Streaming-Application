@@ -1,6 +1,11 @@
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
+const dns = require("dns");
+try {
+  dns.setDefaultResultOrder("verbatim");
+} catch (e) {}
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -40,7 +45,6 @@ const userRoutes = require("./routes/user");
 const compareRoutes = require("./routes/compare");
 const sessionRoutes = require("./routes/sessions");
 const searchHistoryRoutes = require("./routes/searchHistory");
-const adminRoutes = require("./routes/admin");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/movies", movieRoutes);
@@ -51,7 +55,6 @@ app.use("/api/user", userRoutes);
 app.use("/api/compare", compareRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/search-history", searchHistoryRoutes);
-app.use("/api/admin", adminRoutes);
 
 // Serve static frontend files from workspace root
 const frontendPath = path.join(__dirname, "..");
@@ -61,6 +64,20 @@ app.use(express.static(frontendPath));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api")) return next();
   res.sendFile(path.join(frontendPath, "index.html"));
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+mongoose.connection.on("error", (err) => {
+  console.error("MongoDB runtime error:", err.message);
+});
+mongoose.connection.on("disconnected", () => {
+  console.warn("MongoDB disconnected");
 });
 
 const PORT = process.env.PORT || 5000;

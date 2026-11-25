@@ -1,4 +1,12 @@
-const fetch = require('node-fetch');
+const getFetch = () => {
+  if (typeof globalThis.fetch === 'function') return globalThis.fetch;
+  try {
+    const mod = require('node-fetch');
+    return typeof mod === 'function' ? mod : mod.default;
+  } catch {
+    return null;
+  }
+};
 const MovieReception = require('../models/MovieReception');
 const Review = require('../models/Review');
 const { classifySentiment } = require('./sentiment');
@@ -14,12 +22,27 @@ async function readJson(response, source) {
   return response.json();
 }
 
-async function fetchExternal(url, options, source) {
+async function fetchExternal(url, options = {}, source) {
+  const fetchFn = getFetch();
+  if (!fetchFn) throw new Error(`${source} request failed (Fetch unavailable)`);
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 10000) : null;
   try {
-    return await fetch(url, { timeout: 10000, ...options });
+    const { timeout, ...restOptions } = options;
+    return await fetchFn(url, {
+      signal: controller?.signal,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        ...(restOptions.headers || {})
+      },
+      ...restOptions
+    });
   } catch (err) {
-    const code = err.code || err.type;
+    const code = err.code || err.type || err.name;
     throw new Error(`${source} request failed${code ? ` (${code})` : ''}`);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 

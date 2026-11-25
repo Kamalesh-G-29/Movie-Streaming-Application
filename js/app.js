@@ -88,7 +88,8 @@
 
         // ─── HELPERS ───
         const configuredApiBaseUrl = (window.CINEVORA_API_BASE_URL || '').trim();
-        const isLocalDevelopment = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+        const isFileProtocol = window.location.protocol === 'file:';
+        const isLocalDevelopment = ['localhost', '127.0.0.1'].includes(window.location.hostname) || isFileProtocol;
         const API_BASE_URL = (configuredApiBaseUrl ||
             (isLocalDevelopment && window.location.port !== '5000' ? 'http://localhost:5000' : '')
         ).replace(/\/+$/, '');
@@ -685,24 +686,55 @@
             document.getElementById('avatarDisplay').textContent = currentUser.name ? currentUser.name[0].toUpperCase() : 'U';
             document.getElementById('dropdownUserName').textContent = currentUser.name || 'User';
             document.getElementById('dropdownUserEmail').textContent = currentUser.email || '';
-            document.getElementById('adminNavBtn').hidden = !(currentUser.role === 'admin' || currentUser.email === 'admin@cineverse.com');
             loadUserData();
             renderAll();
             toast(`Welcome back, ${currentUser.name || 'User'}!`, 'success');
             return true;
         }
 
+        function deduplicateMovies(movies) {
+            if (!Array.isArray(movies)) return [];
+            const result = [];
+            const seenTitles = new Set();
+            const seenImdb = new Set();
+            const seenIds = new Set();
+
+            for (const m of movies) {
+                if (!m) continue;
+                const title = (m.title || m.name || '').trim().toLowerCase();
+                const imdb = m.imdbId || m.imdb_id;
+                const id = m.id ? String(m.id) : null;
+
+                const isDup = (imdb && seenImdb.has(imdb)) ||
+                              (id && seenIds.has(id)) ||
+                              (title && seenTitles.has(title));
+
+                if (!isDup) {
+                    if (title) seenTitles.add(title);
+                    if (imdb) seenImdb.add(imdb);
+                    if (id) seenIds.add(id);
+                    result.push(m);
+                }
+            }
+            return result;
+        }
+
         function loadUserData() {
             if (!currentUser) return;
             const wl = localStorage.getItem(`wl_${currentUser.email}`);
-            watchlist = wl ? JSON.parse(wl) : [];
+            watchlist = deduplicateMovies(wl ? JSON.parse(wl) : []);
             const rv = localStorage.getItem(`rv_${currentUser.email}`);
-            recentlyViewed = rv ? JSON.parse(rv) : [];
+            recentlyViewed = deduplicateMovies(rv ? JSON.parse(rv) : []);
             movieReviews = JSON.parse(localStorage.getItem('cineverse_reviews')) || {};
+            // Immediately persist cleaned data so localStorage stays free of duplicates
+            localStorage.setItem(`wl_${currentUser.email}`, JSON.stringify(watchlist));
+            localStorage.setItem(`rv_${currentUser.email}`, JSON.stringify(recentlyViewed));
         }
 
         function saveUserData() {
             if (!currentUser) return;
+            watchlist = deduplicateMovies(watchlist);
+            recentlyViewed = deduplicateMovies(recentlyViewed);
             localStorage.setItem(`wl_${currentUser.email}`, JSON.stringify(watchlist));
             localStorage.setItem(`rv_${currentUser.email}`, JSON.stringify(recentlyViewed));
             localStorage.setItem('cineverse_reviews', JSON.stringify(movieReviews));
@@ -717,7 +749,6 @@
             document.getElementById('movieDetailPage').classList.remove('active');
             document.getElementById('profilePage').classList.remove('active');
             document.getElementById('comparePage').classList.remove('active');
-            document.getElementById('adminPage').classList.remove('active');
             document.querySelectorAll('#navLinksContainer button').forEach(b => {
                 b.classList.toggle('active', b.dataset.page === page);
             });
@@ -745,44 +776,8 @@
                 document.getElementById('comparePage').classList.add('active');
                 renderCompareSelected();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-            } else if (page === 'admin' && (currentUser?.role === 'admin' || currentUser?.email === 'admin@cineverse.com')) {
-                document.getElementById('adminPage').classList.add('active');
-                loadAdminDashboard();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
             }
             closeVideoPlayer();
-        }
-
-        function adminFormatDuration(seconds) {
-            const totalMinutes = Math.max(0, Math.floor((Number(seconds) || 0) / 60));
-            return totalMinutes < 60 ? `${totalMinutes} min` : `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
-        }
-
-        function adminFormatTime(value) {
-            return value ? new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
-        }
-
-        function adminEmptyRow(colspan, message) {
-            return `<tr><td colspan="${colspan}" class="admin-empty">${message}</td></tr>`;
-        }
-
-        async function loadAdminDashboard() {
-            const stats = document.getElementById('adminStats');
-            if (!stats) return;
-            stats.innerHTML = '<div class="admin-loading">Loading platform metrics…</div>';
-            try {
-                const response = await apiRequest('/api/admin/summary');
-                const data = response.data || {};
-                stats.innerHTML = [['Total Users', data.users || 0, 'fa-users', 'members'], ['Active Users', data.activeSessions || 0, 'fa-signal', 'online now'], ['Total Movies', data.totalMovies || 0, 'fa-film', 'in watch history']].map(([label, value, icon, detail]) => `<div class="admin-stat"><div class="admin-stat-icon"><i class="fas ${icon}"></i></div><div><span>${label}</span><strong>${Number(value).toLocaleString()}</strong><small>${detail}</small></div></div>`).join('');
-                document.getElementById('adminActivityRows').innerHTML = (data.recentSessions || []).map(session => { const user = session.userId?.name || session.userId?.email || 'Unknown user'; return `<tr><td><strong>${user}</strong></td><td>${adminFormatTime(session.loginTime)}</td><td>${session.active ? '—' : adminFormatTime(session.logoutTime)}</td><td>${adminFormatDuration(session.duration)}</td><td><span class="admin-status ${session.active ? 'online' : ''}">${session.active ? 'Active' : 'Ended'}</span></td></tr>`; }).join('') || adminEmptyRow(5, 'No sessions recorded yet.');
-                document.getElementById('adminMostWatched').innerHTML = (data.mostWatched || []).map((movie, index) => `<div class="admin-rank-row"><span class="admin-rank">${String(index + 1).padStart(2, '0')}</span><div class="admin-rank-title"><strong>${movie.title || 'Untitled movie'}</strong><span>${movie.views} views</span></div><div class="admin-rank-bar"><i style="width:${Math.min(100, (movie.views / Math.max(1, data.mostWatched[0]?.views || 1)) * 100)}%"></i></div></div>`).join('') || '<div class="admin-empty">No watch history recorded yet.</div>';
-                document.getElementById('adminHistoryRows').innerHTML = (data.recentWatchHistory || []).map(item => `<tr><td><strong>${item.userId?.name || item.userId?.email || 'Unknown user'}</strong></td><td>${item.title || 'Untitled movie'}</td><td>${adminFormatDuration(item.watchDuration)}</td><td><div class="admin-progress"><i style="width:${Math.min(100, Math.max(0, item.progress || 0))}%"></i></div><span class="admin-progress-value">${Math.round(item.progress || 0)}%</span></td></tr>`).join('') || adminEmptyRow(4, 'No watch history recorded yet.');
-            } catch (error) {
-                stats.innerHTML = '<div class="admin-empty admin-error">Unable to load dashboard data. Check the server connection.</div>';
-                document.getElementById('adminActivityRows').innerHTML = adminEmptyRow(5, 'Dashboard data unavailable.');
-                document.getElementById('adminMostWatched').innerHTML = '<div class="admin-empty">Dashboard data unavailable.</div>';
-                document.getElementById('adminHistoryRows').innerHTML = adminEmptyRow(4, 'Dashboard data unavailable.');
-            }
         }
 
         // ─── MOVIE CARD BUILDER ───
@@ -890,6 +885,7 @@
         function renderRecentlyViewed() {
             const grid = document.getElementById('recentlyViewedGrid');
             if (!grid) return;
+            recentlyViewed = deduplicateMovies(recentlyViewed);
             const items = filterBlockedMovies(recentlyViewed);
             if (items.length === 0) {
                 grid.innerHTML = `<div class="grid-empty"><i class="fas fa-clock" style="font-size:2rem;display:block;margin-bottom:8px;opacity:0.3;"></i> No viewing history available</div>`;
@@ -898,11 +894,21 @@
             grid.innerHTML = '';
             for (const item of items.slice(0, 15)) {
                 const card = createEnhancedMovieCard(item,
-                    () => { if (item.imdbId) openDetailByImdb(item.imdbId); },
+                    () => {
+                        if (item.imdbId && String(item.imdbId).startsWith('tt')) {
+                            openDetailByImdb(item.imdbId);
+                        } else if (item.id || item.imdbId) {
+                            navigateTo('detail', { id: item.id || item.imdbId, type: 'movie' });
+                        }
+                    },
                     true,
                     (movie) => {
                         showConfirmDialog('Remove from History', `Remove "${movie.title}" from your viewing history?`, () => {
-                            const idx = recentlyViewed.findIndex(r => r.imdbId === movie.imdbId);
+                            const idx = recentlyViewed.findIndex(r =>
+                                (movie.imdbId && (r.imdbId === movie.imdbId || String(r.id) === String(movie.imdbId))) ||
+                                (movie.id && (String(r.id) === String(movie.id) || r.imdbId === movie.id)) ||
+                                ((r.title || '').trim().toLowerCase() === (movie.title || '').trim().toLowerCase())
+                            );
                             if (idx > -1) {
                                 recentlyViewed.splice(idx, 1);
                                 saveUserData();
@@ -927,11 +933,47 @@
         }
 
         function addToRecentlyViewed(movie) {
-            if (!movie || !movie.imdbId) return;
-            const idx = recentlyViewed.findIndex(r => r.imdbId === movie.imdbId);
-            if (idx > -1) recentlyViewed.splice(idx, 1);
-            recentlyViewed.unshift({ ...movie, viewedAt: new Date().toISOString() });
-            if (recentlyViewed.length > 20) recentlyViewed = recentlyViewed.slice(0, 20);
+            if (!movie) return;
+            const movieTitle = (movie.title || movie.name || '').trim();
+            const movieImdb = movie.imdbId || movie.imdb_id;
+            const movieId = movie.id;
+            if (!movieTitle && !movieImdb && !movieId) return;
+
+            // Find existing index by any matching identifier to prevent duplicates or copies
+            const idx = recentlyViewed.findIndex(r => {
+                if (movieImdb && (r.imdbId === movieImdb || r.imdb_id === movieImdb || String(r.id) === String(movieImdb))) return true;
+                if (movieId && (String(r.id) === String(movieId) || String(r.imdbId) === String(movieId))) return true;
+                if (movieTitle && (r.title || r.name || '').trim().toLowerCase() === movieTitle.toLowerCase()) return true;
+                return false;
+            });
+
+            let merged = {
+                id: movieId || (movieImdb && !String(movieImdb).startsWith('tt') ? movieImdb : null),
+                imdbId: movieImdb || movieId,
+                title: movieTitle,
+                poster: movie.poster || (movie.poster_path ? getPoster(movie.poster_path) : IMG_NA),
+                year: movie.year || getYear(movie.release_date),
+                vote_average: movie.vote_average || 0,
+                original_language: movie.original_language || 'en',
+                runtime: movie.runtime || 0,
+                viewedAt: new Date().toISOString()
+            };
+
+            if (idx > -1) {
+                const existing = recentlyViewed[idx];
+                merged = {
+                    ...existing,
+                    ...merged,
+                    id: merged.id || existing.id,
+                    imdbId: (merged.imdbId && String(merged.imdbId).startsWith('tt')) ? merged.imdbId : (existing.imdbId || merged.imdbId),
+                    poster: merged.poster !== IMG_NA ? merged.poster : existing.poster,
+                    viewedAt: new Date().toISOString()
+                };
+                recentlyViewed.splice(idx, 1);
+            }
+
+            recentlyViewed.unshift(merged);
+            recentlyViewed = deduplicateMovies(recentlyViewed).slice(0, 20);
             saveUserData();
             renderRecentlyViewed();
         }
@@ -972,6 +1014,7 @@
                     const watchBtn = document.getElementById('heroWatchBtn');
                     const detailsBtn = document.getElementById('heroDetailsBtn');
                     const movieData = {
+                        id: m.id,
                         imdbId: m.id,
                         title: m.title,
                         poster: m.poster_path ? getPoster(m.poster_path) : IMG_NA,
@@ -1002,6 +1045,7 @@
                     return;
                 }
                 addToRecentlyViewed({
+                    id: id,
                     imdbId: data.imdb_id || id,
                     title: data.title || data.name,
                     year: getYear(data.release_date),
@@ -1070,7 +1114,7 @@
                                     <i class="fas ${inWatchlist ? 'fa-check' : 'fa-plus'}"></i> ${inWatchlist ? 'In Watchlist' : 'Watchlist'}
                                 </button>
                                 ${imdbId ? `<button class="btn-imdb" data-imdb="${imdbId}"><i class="fab fa-imdb"></i> IMDb</button>` : ''}
-                                <button class="btn-play" data-id="${id}" data-title="${title}" data-poster="${poster}" data-year="${year}" data-rating="${voteAvg}" data-lang="${language}" data-runtime="${data.runtime}">
+                                <button class="btn-play" data-id="${id}" data-imdb="${imdbId || id}" data-title="${title}" data-poster="${poster}" data-year="${year}" data-rating="${voteAvg}" data-lang="${language}" data-runtime="${data.runtime}">
                                     <i class="fas fa-play play-text"></i><span class="spinner"></span> Play
                                 </button>
                             </div>
@@ -1145,9 +1189,10 @@
                     if (imdb) window.open(`https://www.imdb.com/title/${imdb}/`, '_blank');
                 });
                 container.querySelector('.btn-play')?.addEventListener('click', function () {
-                    const movieId = this.dataset.id;
+                    const movieId = this.dataset.imdb || this.dataset.id;
                     if (!movieId) { toast('No movie ID available', 'error'); return; }
                     const movieData = {
+                        id: this.dataset.id,
                         imdbId: movieId,
                         title: this.dataset.title,
                         poster: this.dataset.poster || IMG_NA,
@@ -1728,7 +1773,10 @@
                     const card = this.closest('.profile-card');
                     const title = card?.querySelector('.card-info h4')?.textContent || 'Movie';
                     showConfirmDialog('Remove from History', `Remove "${title}" from your viewing history?`, () => {
-                        const idx = recentlyViewed.findIndex(r => r.imdbId === imdb);
+                        const idx = recentlyViewed.findIndex(r =>
+                            (imdb && (r.imdbId === imdb || String(r.id) === String(imdb))) ||
+                            ((r.title || '').trim().toLowerCase() === title.trim().toLowerCase())
+                        );
                         if (idx > -1) {
                             recentlyViewed.splice(idx, 1);
                             saveUserData();
@@ -1745,7 +1793,8 @@
                 card.addEventListener('click', function (e) {
                     if (e.target.closest('.remove-btn')) return;
                     const imdb = this.dataset.imdb;
-                    if (imdb) openDetailByImdb(imdb);
+                    if (imdb && String(imdb).startsWith('tt')) openDetailByImdb(imdb);
+                    else if (imdb) navigateTo('detail', { id: imdb, type: 'movie' });
                 });
             });
 
@@ -2064,8 +2113,13 @@
                 }
             });
             document.getElementById('googleMockBtn').addEventListener('click', () => {
-                const g = usersDB.find(u => u.email === 'admin@cineverse.com');
-                if (g) loginUser(g.email);
+                let g = usersDB.find(u => u.email === 'admin@cineverse.com');
+                if (!g) {
+                    g = { email: 'admin@cineverse.com', password: '12345', name: 'Admin' };
+                    usersDB.push(g);
+                    localStorage.setItem('cineverse_users', JSON.stringify(usersDB));
+                }
+                loginUser(g.email);
             });
             document.getElementById('openSignup').addEventListener('click', async () => {
                 const em = prompt('Enter email:');
@@ -2114,7 +2168,6 @@
             document.querySelectorAll('#navLinksContainer button').forEach(btn => {
                 btn.addEventListener('click', () => navigateTo(btn.dataset.page));
             });
-            document.getElementById('adminRefreshBtn')?.addEventListener('click', loadAdminDashboard);
             document.getElementById('clearHistoryBtn')?.addEventListener('click', clearAllHistory);
             document.getElementById('backToTopBtn')?.addEventListener('click', () => {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
